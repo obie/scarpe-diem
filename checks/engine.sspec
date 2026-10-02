@@ -1,0 +1,39 @@
+---
+display: native
+timeout: 180
+----------- app code
+ENV["DIEM_RECORD"] = "1" # no loader, no synth, no audio: the test drives frames itself
+load "__DIEM_ROOT__/scarpe_diem.rb" # checks/run.sh fills in the project folder
+----------- test code
+app = Shoes.APPS.first
+engine = app.instance_variable_get(:@engine)
+sync = engine.sync
+bar = Diem::Music::BAR
+
+# The score and the sync agree on the big moments.
+sync.at(8 * bar)
+assert_in_delta 1.0, sync.hit(:kick), 0.01, "the first drop lands on bar 8"
+sync.at(8 * bar - 0.1)
+assert_operator sync.hit(:kick), :<, 0.001, "nothing kicks in the breath before the drop"
+assert_equal :drop, Diem::Music.section_at(8 * bar)
+assert_equal :climax_a, Diem::Music.section_at(72 * bar)
+assert_equal 192.0, Diem::Music::LENGTH
+assert_equal 4, sync.at(8 * bar + 1.99).count(:kick) - sync.at(8 * bar - 0.01).count(:kick), "four on the floor"
+
+# Every scene builds, draws without raising, and puts real pictures on screen.
+probes = [[100, 100], [480, 270], [820, 420], [300, 460], [700, 120], [480, 60]]
+Diem::PLAN.each do |name, from, _to, _|
+  t = from * bar + 3.0
+  engine.render_frame((t * Diem::RECORD_FPS).round)
+  colours = probes.map { |x, y| pixel_at(x, y)[0, 3] }
+  assert_operator colours.uniq.size, :>, 1, "#{name} draws something at #{t} s"
+end
+
+# The veil: a flash scene starts white and clears; a fade scene starts black.
+copper = Diem::PLAN.find { |n, *| n == "Copper" }[1] * bar
+engine.render_frame((copper * Diem::RECORD_FPS).round)
+r, g, b, _ = pixel_at(480, 270)
+assert_operator [r, g, b].min, :>, 230, "Copper arrives in a white flash"
+engine.render_frame(((copper + 1.0) * Diem::RECORD_FPS).round)
+r, g, b, _ = pixel_at(5, 5)
+refute_operator [r, g, b].min, :>, 230, "the flash has cleared a second later"

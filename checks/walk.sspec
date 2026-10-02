@@ -1,0 +1,72 @@
+---
+display: native
+timeout: 180
+----------- app code
+# The after-party on its own, driven frame by frame by the test: Walk leans on the Maze
+# scene's private renderer, so a rename there must fail here, loudly.
+require "__DIEM_ROOT__/lib/diem" # checks/run.sh fills in the project folder
+Shoes.app(title: "walk check", width: Diem::W, height: Diem::H, resizable: false) do
+  background Diem::Palette.hex(Diem::Palette::NIGHT)
+  @walk = Diem::Scenes::Walk.new(self)
+  @walk.build
+  @walk.enter
+  @walk.show
+end
+----------- test code
+app = Shoes.APPS.first
+walk = app.instance_variable_get(:@walk)
+sync = Diem::Sync.new(Diem::Music.score)
+from = Diem::Engine::WALK_FROM
+span = Diem::Engine::WALK_TO - from
+pl = walk.instance_variable_get(:@player)
+shoes = Diem::WalkHunt::SHOES
+clock = 0.0
+frame = lambda do |keys = []|
+  keys.each { |k| walk.key(k) }
+  walk.update(clock, sync.at(from + clock % span))
+  clock += 1.0 / 60
+end
+
+# Held up (a press, the OS delay, then repeats) walks north up the start corridor.
+y0 = pl.y
+frame.call(["up"])
+20.times { frame.call }
+100.times { |n| frame.call(n.even? ? ["up"] : []) }
+assert_operator y0 - pl.y, :>, 3.0, "holding up walks forward"
+assert_in_delta 2.5, pl.x, 0.3, "and straight"
+
+# Turning and strafing do what they say.
+a0 = pl.ang
+frame.call(["left"])
+20.times { frame.call }
+20.times { |n| frame.call(n.even? ? ["left"] : []) }
+assert_operator pl.ang, :<, a0 - 0.5, "left turns left"
+30.times { frame.call } # let the turn ease out
+x1 = pl.x
+y1 = pl.y
+a1 = pl.ang
+frame.call(["d"])
+40.times { frame.call }
+assert_operator (pl.x - x1) * -Math.sin(a1) + (pl.y - y1) * Math.cos(a1), :>, 0.2, "d strafes right"
+
+# Every shoe can be taken: stand beside each, and it is found, counted and gone.
+shoes.each_with_index do |(x, y), k|
+  pl.reset(x + 0.3, y, Math::PI)
+  90.times { frame.call }
+  assert_equal k + 1, walk.instance_variable_get(:@got), "shoe #{k + 1} at #{[x, y]} is found"
+end
+assert walk.instance_variable_get(:@done_at), "all seven found ends the hunt"
+
+# The celebration runs (fireworks, words) for a few seconds without raising, and draws.
+300.times { frame.call }
+probes = [[100, 100], [480, 270], [820, 420], [300, 460], [700, 120], [480, 60]]
+colours = probes.map { |x, y| pixel_at(x, y)[0, 3] }
+assert_operator colours.uniq.size, :>, 1, "the walk draws something"
+counter = walk.instance_variable_get(:@counter).instance_variable_get(:@shown)
+assert_equal shoes.size, counter, "the counter reads #{shoes.size}/#{shoes.size}"
+
+# A fresh walk starts over.
+walk.enter
+assert_equal 0, walk.instance_variable_get(:@got)
+clock = 0.0
+120.times { frame.call }
